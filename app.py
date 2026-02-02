@@ -1,26 +1,42 @@
 from pathlib import Path
 import uuid
-import uvicorn
-import webbrowser
-import threading
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 
 from engine import run_calculation
 
-# this just creates the path to uploads and outputs in the data folder
-app_dir = Path(__file__).parent.resolve()
-uploads= app_dir / "data" / "uploads"
-outputs= app_dir / "data" / "outputs"
 
-#for good order make sure that the file size isnt too big in this case i chose 10MB
+# -------------------------------------------------------------------
+# Infrastructure / storage setup
+# -------------------------------------------------------------------
+
+# Cloud Run allows writing only to /tmp (ephemeral storage)
+# This replaces your local ./data/uploads and ./data/outputs
+uploads = Path("/tmp/uploads")
+outputs = Path("/tmp/outputs")
+
+# Make sure folders exist (important on Cloud Run)
+uploads.mkdir(parents=True, exist_ok=True)
+outputs.mkdir(parents=True, exist_ok=True)
+
+# For good order make sure that the file size isnt too big
+# in this case i chose 10MB
 maxUploadedBytes = 10 * 1024 * 1024  
 
-#starts fast api
+
+# -------------------------------------------------------------------
+# Start FastAPI
+# -------------------------------------------------------------------
+
 app = FastAPI()
 
-#this is what creates the website with html and js.
+
+# -------------------------------------------------------------------
+# Frontend (HTML + JS)
+# -------------------------------------------------------------------
+
+# This is what creates the website with html and js.
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -70,10 +86,15 @@ async function upload() {
   const form = new FormData();
   form.append("file", f);
 
-  const res = await fetch("/run", { method: "POST", body: form });
+  let res;
+  try {
+    res = await fetch("/run", { method: "POST", body: form });
+  } catch (err) {
+    msg.textContent = "Network error:\\n" + err;
+    return;
+  }
 
   if (!res.ok) {
-    // FastAPI returns JSON for HTTPException by default
     let text;
     try {
       const j = await res.json();
@@ -102,51 +123,56 @@ async function upload() {
 </html>
 """
 
-# This is what runs when the user clicks the button "upload and download output.xlsx"
+
+# -------------------------------------------------------------------
+# API endpoint (file upload + calculation)
+# -------------------------------------------------------------------
+
+# This is what runs when the user clicks the button
 @app.post("/run")
 async def run(file: UploadFile = File(...)):
 
-    #if there is no file or it isnt of type .xlsx send error
+    # If there is no file or it isnt of type .xlsx send error
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Only .xlsx files allowed")
 
-    #this is an asyncronous function so we have to wait the file to be read before anything else
+    # This is an asynchronous function so we have to wait
+    # for the file to be read before anything else
     contents = await file.read()
 
-    #just checks for the size of the file, we set max earlier to 10MB
+    # Just checks for the size of the file
     if len(contents) > maxUploadedBytes:
-        raise HTTPException(status_code=413, detail=f"File too large (max {maxUploadedBytes} bytes)")
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {maxUploadedBytes} bytes)"
+        )
 
-    #assign it a universally unique identifier
+    # Assign it a universally unique identifier
     job_id = str(uuid.uuid4())
 
-    #adjusting the input and output path for the specific file
+    # Adjusting the input and output path for the specific file
     input_path = uploads / f"{job_id}.xlsx"
     output_path = outputs / f"{job_id}_output.xlsx"
 
-    #Writes the uploaded file bytes to disk
+    # Writes the uploaded file bytes to disk
     input_path.write_bytes(contents)
 
-    #now it runs the "calculations"/business logic which is defined in engine.py, and returns the relevant errors ocurred
+    # Run the "calculations"/business logic
     try:
         run_calculation(input_path, output_path)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) # the error explained xxx
+        # Validation / user errors
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Calculation failed: {type(e).__name__}: {e}") #returns a readable validation error
+        # Unexpected server errors
+        raise HTTPException(
+            status_code=500,
+            detail=f"Calculation failed: {type(e).__name__}: {e}"
+        )
 
-    #returns file to the client
+    # Return the output file to the client
     return FileResponse(
-    path=output_path,
-    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    filename="output.xlsx",
-)
-
-def open_browser():
-    webbrowser.open("http://127.0.0.1:8000")
-
-
-# This does such that when run it automatically opens in the browser
-if __name__ == "__main__":
-   threading.Timer(0.8, open_browser).start()
-   uvicorn.run(app, host="0.0.0.0", port=8000)
+        path=output_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="output.xlsx",
+    )
