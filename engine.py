@@ -17,7 +17,7 @@ def run_calculation(input_path: Path, output_path: Path) -> None:
         raise ValueError(f"Cell A1 must be a number. Got: {value!r}")
 
     #Simple "Secret Calculation"
-    doubled = value * 2
+    fourdoubled = value * 4
 
     #creates new workbook
     wb_out = Workbook()
@@ -28,7 +28,7 @@ def run_calculation(input_path: Path, output_path: Path) -> None:
     ws_out["A1"] = "Input A1"
     ws_out["B1"] = value
     ws_out["A2"] = "Doubled"
-    ws_out["B2"] = doubled
+    ws_out["B2"] = fourdoubled
 
     # saves the data to the file in outputs
     wb_out.save(output_path)

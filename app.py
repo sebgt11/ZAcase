@@ -7,12 +7,9 @@ from fastapi.responses import FileResponse, HTMLResponse
 from engine import run_calculation
 
 
-# -------------------------------------------------------------------
-# Infrastructure / storage setup
-# -------------------------------------------------------------------
 
-# Cloud Run allows writing only to /tmp (ephemeral storage)
-# This replaces your local ./data/uploads and ./data/outputs
+# Cloud Run allows writing only to /tmp
+# This replaces local ./data/uploads and ./data/outputs
 uploads = Path("/tmp/uploads")
 outputs = Path("/tmp/outputs")
 
@@ -25,16 +22,8 @@ outputs.mkdir(parents=True, exist_ok=True)
 maxUploadedBytes = 10 * 1024 * 1024  
 
 
-# -------------------------------------------------------------------
-# Start FastAPI
-# -------------------------------------------------------------------
-
 app = FastAPI()
 
-
-# -------------------------------------------------------------------
-# Frontend (HTML + JS)
-# -------------------------------------------------------------------
 
 # This is what creates the website with html and js.
 @app.get("/", response_class=HTMLResponse)
@@ -122,11 +111,6 @@ async function upload() {
 </body>
 </html>
 """
-
-
-# -------------------------------------------------------------------
-# API endpoint (file upload + calculation)
-# -------------------------------------------------------------------
 
 # This is what runs when the user clicks the button
 @app.post("/run")
